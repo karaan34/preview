@@ -132,6 +132,37 @@
       opacity: 0.25;
       pointer-events: none;
     }
+    .input-panel {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: rgba(230,241,255,0.7);
+    }
+    .input-panel button {
+      font-family: "Orbitron", sans-serif;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      padding: 6px 10px;
+      border-radius: 20px;
+      border: 1px solid rgba(0,229,255,0.4);
+      background: rgba(0,229,255,0.08);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .input-panel button.active {
+      border-color: rgba(0,229,255,0.9);
+      box-shadow: 0 0 12px rgba(0,229,255,0.5);
+    }
+    .input-status {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      opacity: 0.7;
+    }
     @media (max-width: 700px) {
       .distance { font-size: 18px; }
       .cta { padding: 10px 18px; letter-spacing: 0.16em; }
@@ -146,6 +177,13 @@
         <div class="logo">SMASH PARKOUR</div>
         <div class="distance" id="distance">0.00 KM</div>
         <div class="energy-ring" id="energyRing"></div>
+      </div>
+      <div class="input-panel">
+        <span>Input</span>
+        <button id="inputPhone" class="active">Phone</button>
+        <button id="inputBle">BLE</button>
+        <button id="inputKey">Keys</button>
+        <span class="input-status" id="inputStatus">Tap RUN to begin</span>
       </div>
       <div class="hint" id="hint">Move to power up.</div>
       <button class="cta" id="runBtn">RUN <small>motion on</small></button>
@@ -165,7 +203,7 @@
     };
 
     const config = {
-      baseSpeed: 6,
+      baseSpeed: 0,
       maxSpeed: 28,
       intensityDeadzone: 0.06,
       intensitySmooth: 0.12,
@@ -257,23 +295,80 @@
       }
     }
 
-    class MockBLEInput extends InputProvider {
+    class BLEInputProvider extends InputProvider {
       constructor() {
         super();
-        this.t = 0;
+        this.device = null;
+        this.server = null;
+        this.intensity = 0;
+        this.cadence = 0;
+        this.heartRate = 0;
         this.jumpFlag = false;
       }
-      start() { super.start(); this.t = 0; }
-      getRaw(dt) {
-        this.t += dt || 0.016;
-        const cadence = 1.4 + Math.sin(this.t * 0.5) * 0.3;
-        const intensity = 0.4 + Math.abs(Math.sin(this.t * cadence)) * 0.6;
-        if (Math.floor(this.t) % 7 === 0 && this.t % 7 < 0.02) this.jumpFlag = true;
-        return {
-          intensity,
-          jump: this.consumeJump(),
-          lateral: Math.sin(this.t * 0.6) * 0.4
-        };
+      async connect() {
+        if (!navigator.bluetooth) throw new Error("Web Bluetooth not supported.");
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ["heart_rate", "cycling_speed_and_cadence"]
+        });
+        this.device = device;
+        this.server = await device.gatt.connect();
+        await this.tryHeartRate();
+        await this.tryCadence();
+      }
+      async tryHeartRate() {
+        try {
+          const service = await this.server.getPrimaryService("heart_rate");
+          const characteristic = await service.getCharacteristic("heart_rate_measurement");
+          await characteristic.startNotifications();
+          characteristic.addEventListener("characteristicvaluechanged", (event) => {
+            const data = event.target.value;
+            const flags = data.getUint8(0);
+            const hr = (flags & 0x1) ? data.getUint16(1, true) : data.getUint8(1);
+            this.heartRate = hr;
+          });
+        } catch (err) {
+          // Heart rate service not available on this device.
+        }
+      }
+      async tryCadence() {
+        try {
+          const service = await this.server.getPrimaryService("cycling_speed_and_cadence");
+          const characteristic = await service.getCharacteristic("csc_measurement");
+          let lastCrankRevs = null;
+          let lastEventTime = null;
+          await characteristic.startNotifications();
+          characteristic.addEventListener("characteristicvaluechanged", (event) => {
+            const data = event.target.value;
+            const flags = data.getUint8(0);
+            let index = 1;
+            if (flags & 0x1) index += 6; // skip wheel data
+            if (flags & 0x2) {
+              const crankRevs = data.getUint16(index, true);
+              const eventTime = data.getUint16(index + 2, true);
+              if (lastCrankRevs !== null && lastEventTime !== null) {
+                const revDiff = (crankRevs - lastCrankRevs + 65536) % 65536;
+                const timeDiff = (eventTime - lastEventTime + 65536) % 65536;
+                const seconds = timeDiff / 1024;
+                if (seconds > 0) {
+                  const rpm = (revDiff / seconds) * 60;
+                  this.cadence = rpm;
+                  if (rpm > 90) this.jumpFlag = true;
+                }
+              }
+              lastCrankRevs = crankRevs;
+              lastEventTime = eventTime;
+            }
+          });
+        } catch (err) {
+          // CSC service not available on this device.
+        }
+      }
+      getRaw() {
+        const hrIntensity = this.heartRate ? Math.min(1, Math.max(0, (this.heartRate - 90) / 80)) : 0;
+        const cadenceIntensity = this.cadence ? Math.min(1, Math.max(0, (this.cadence - 40) / 120)) : 0;
+        this.intensity = Math.max(hrIntensity, cadenceIntensity * 1.1);
+        return { intensity: this.intensity, jump: this.consumeJump(), lateral: 0 };
       }
       consumeJump() {
         const value = this.jumpFlag;
@@ -320,9 +415,9 @@
     class InputManager {
       constructor() {
         this.phone = new PhoneSensorInput();
-        this.mock = new MockBLEInput();
+        this.ble = new BLEInputProvider();
         this.button = new ButtonFallback();
-        this.active = this.phone;
+        this.active = null;
         this.smoothIntensity = 0;
         this.smoothLateral = 0;
         this.peakHistory = [];
@@ -333,12 +428,17 @@
         if (ok) this.setActive(this.phone);
         return ok;
       }
+      async activateBle() {
+        await this.ble.connect();
+        this.setActive(this.ble);
+      }
       setActive(provider) {
         if (this.active) this.active.stop();
         this.active = provider;
         this.active.start();
       }
       update(dt) {
+        if (!this.active) return { intensity: 0, jump: false, lateral: 0 };
         if (this.active === this.phone) this.phone.tick(dt);
         const raw = this.active.getRaw(dt);
         const dz = config.intensityDeadzone;
@@ -556,6 +656,10 @@
     const energyRingEl = document.getElementById("energyRing");
     const runBtn = document.getElementById("runBtn");
     const hint = document.getElementById("hint");
+    const inputPhoneBtn = document.getElementById("inputPhone");
+    const inputBleBtn = document.getElementById("inputBle");
+    const inputKeyBtn = document.getElementById("inputKey");
+    const inputStatus = document.getElementById("inputStatus");
 
     let started = false;
     let jumpActive = false;
@@ -567,7 +671,7 @@
       started = true;
       hint.classList.remove("pulse");
       const ok = await inputManager.activatePhone();
-      if (!ok) inputManager.setActive(inputManager.mock);
+      if (!ok) inputStatus.textContent = "Motion blocked";
       audio = createAudio();
       runBtn.style.display = "none";
     }
@@ -578,21 +682,20 @@
     engine.runRenderLoop(() => {
       const dtRaw = engine.getDeltaTime() / 1000;
       const dt = dtRaw * state.timeScale;
+      if (!started) {
+        sceneData.scene.render();
+        return;
+      }
       state.time += dt;
 
       const input = inputManager.update(dt);
 
-      // Auto-start demo loop for ad playback if user does not tap.
-      if (!started && state.time > 0.6) {
-        inputManager.setActive(inputManager.mock);
-        started = true;
-      }
-
       const adBoost = adFlowBoost(state.time);
       const boostedIntensity = Math.min(1, input.intensity * 0.85 + adBoost * 0.35);
 
-      const targetSpeed = config.baseSpeed + (config.maxSpeed * (0.2 + boostedIntensity * 0.8));
-      state.speed += (targetSpeed - state.speed) * 0.06;
+      const targetSpeed = config.baseSpeed + (config.maxSpeed * boostedIntensity);
+      state.speed += (targetSpeed - state.speed) * 0.08;
+      if (boostedIntensity < 0.05) state.speed *= 0.98;
 
       const energyChange = boostedIntensity > 0.1 ? config.energyBuild : -config.energyDecay;
       state.energy = Math.min(1, Math.max(0, state.energy + energyChange * dt));
@@ -729,6 +832,39 @@
     }
 
     window.addEventListener("resize", () => engine.resize());
+
+    function setActiveButton(activeBtn) {
+      [inputPhoneBtn, inputBleBtn, inputKeyBtn].forEach(btn => btn.classList.remove("active"));
+      activeBtn.classList.add("active");
+    }
+
+    inputPhoneBtn.addEventListener("click", async () => {
+      setActiveButton(inputPhoneBtn);
+      inputStatus.textContent = "Tap RUN to enable motion";
+      if (started) {
+        const ok = await inputManager.activatePhone();
+        inputStatus.textContent = ok ? "Phone motion active" : "Motion blocked";
+      }
+    });
+
+    inputBleBtn.addEventListener("click", async () => {
+      setActiveButton(inputBleBtn);
+      inputStatus.textContent = "Connect BLE device";
+      if (started) {
+        try {
+          await inputManager.activateBle();
+          inputStatus.textContent = "BLE connected";
+        } catch (err) {
+          inputStatus.textContent = "BLE connect failed";
+        }
+      }
+    });
+
+    inputKeyBtn.addEventListener("click", () => {
+      setActiveButton(inputKeyBtn);
+      inputManager.setActive(inputManager.button);
+      inputStatus.textContent = "Keys active";
+    });
   </script>
 </body>
 </html>
