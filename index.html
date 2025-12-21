@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SMASH PARKOUR - Smash Your Fitness</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Chakra+Petch:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #06080F;
+      --neon-primary: #00E5FF;
+      --neon-secondary: #FF2ED1;
+      --neon-accent: #9BFF00;
+      --warn: #FF3B30;
+      --text: #E6F1FF;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Chakra Petch", sans-serif;
+      overflow: hidden;
+    }
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background:
+        radial-gradient(1200px 600px at 70% 30%, rgba(255,46,209,0.15), transparent 60%),
+        radial-gradient(900px 500px at 20% 80%, rgba(0,229,255,0.15), transparent 60%),
+        linear-gradient(180deg, #05070d 0%, #090f1c 70%, #070b12 100%);
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 18px 24px;
+    }
+    .top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .logo {
+      font-family: "Orbitron", sans-serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 14px;
+      color: var(--neon-primary);
+      text-shadow: 0 0 12px rgba(0,229,255,0.6);
+    }
+    .distance {
+      font-family: "Orbitron", sans-serif;
+      font-size: 22px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .energy-ring {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background:
+        conic-gradient(var(--neon-primary) 0deg, rgba(0,229,255,0.1) 0deg),
+        radial-gradient(circle at center, rgba(0,0,0,0.4) 58%, rgba(0,229,255,0.15) 60%, transparent 62%);
+      box-shadow: 0 0 18px rgba(0,229,255,0.45);
+      border: 1px solid rgba(0,229,255,0.4);
+    }
+    .cta {
+      position: absolute;
+      left: 50%;
+      bottom: 28px;
+      transform: translateX(-50%);
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 24px;
+      border: 1px solid rgba(0,229,255,0.6);
+      color: var(--text);
+      font-family: "Orbitron", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      background: linear-gradient(135deg, rgba(0,229,255,0.2), rgba(255,46,209,0.2));
+      box-shadow: 0 0 18px rgba(0,229,255,0.6), inset 0 0 12px rgba(255,46,209,0.2);
+      border-radius: 40px;
+      cursor: pointer;
+    }
+    .cta small {
+      font-family: "Chakra Petch", sans-serif;
+      letter-spacing: 0.1em;
+      font-size: 11px;
+      opacity: 0.8;
+    }
+    .hint {
+      position: absolute;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: rgba(230,241,255,0.7);
+      pointer-events: none;
+    }
+    .pulse {
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0% { transform: translateX(-50%) scale(1); opacity: 0.8; }
+      50% { transform: translateX(-50%) scale(1.06); opacity: 1; }
+      100% { transform: translateX(-50%) scale(1); opacity: 0.8; }
+    }
+    .scanlines {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02) 1px, transparent 1px, transparent 4px);
+      mix-blend-mode: screen;
+      opacity: 0.25;
+      pointer-events: none;
+    }
+    @media (max-width: 700px) {
+      .distance { font-size: 18px; }
+      .cta { padding: 10px 18px; letter-spacing: 0.16em; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+    <div class="hud">
+      <div class="top-row">
+        <div class="logo">SMASH PARKOUR</div>
+        <div class="distance" id="distance">0.00 KM</div>
+        <div class="energy-ring" id="energyRing"></div>
+      </div>
+      <div class="hint" id="hint">Move to power up.</div>
+      <button class="cta" id="runBtn">RUN <small>motion on</small></button>
+    </div>
+    <div class="scanlines"></div>
+  </div>
+
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script>
+    const PALETTE = {
+      bg: "#06080F",
+      primary: "#00E5FF",
+      secondary: "#FF2ED1",
+      accent: "#9BFF00",
+      warn: "#FF3B30",
+      text: "#E6F1FF"
+    };
+
+    const config = {
+      baseSpeed: 6,
+      maxSpeed: 28,
+      intensityDeadzone: 0.06,
+      intensitySmooth: 0.12,
+      energyBuild: 0.28,
+      energyDecay: 0.18,
+      bobAmount: 0.12,
+      bobBase: 2.2,
+      laneMax: 2.2,
+      jumpCooldown: 4
+    };
+
+    const state = {
+      time: 0,
+      distance: 0,
+      speed: 0,
+      intensity: 0,
+      energy: 0,
+      timeScale: 1,
+      lane: 0,
+      jumpTimer: 0,
+      nearMissCooldown: 0,
+      adJumpTriggered: false
+    };
+
+    class InputProvider {
+      constructor() { this.active = false; }
+      start() { this.active = true; }
+      stop() { this.active = false; }
+      getRaw() { return { intensity: 0, jump: false, lateral: 0 }; }
+    }
+
+    class PhoneSensorInput extends InputProvider {
+      constructor() {
+        super();
+        this.accelMag = 0;
+        this.jumpFlag = false;
+        this.lateral = 0;
+        this._jumpCooldown = 0;
+      }
+      async requestPermission() {
+        if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+          const response = await DeviceMotionEvent.requestPermission();
+          return response === "granted";
+        }
+        return true;
+      }
+      start() {
+        super.start();
+        window.addEventListener("devicemotion", this.onMotion, { passive: true });
+        window.addEventListener("deviceorientation", this.onOrientation, { passive: true });
+      }
+      stop() {
+        super.stop();
+        window.removeEventListener("devicemotion", this.onMotion);
+        window.removeEventListener("deviceorientation", this.onOrientation);
+      }
+      onMotion = (event) => {
+        const a = event.accelerationIncludingGravity || event.acceleration;
+        if (!a) return;
+        const gx = a.x || 0;
+        const gy = a.y || 0;
+        const gz = a.z || 0;
+        const mag = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        const highpass = Math.abs(mag - 9.81);
+        this.accelMag = Math.min(6, Math.max(0, highpass));
+        if (this._jumpCooldown <= 0 && highpass > 4.2) {
+          this.jumpFlag = true;
+          this._jumpCooldown = config.jumpCooldown;
+        }
+      };
+      onOrientation = (event) => {
+        const gamma = event.gamma || 0;
+        this.lateral = Math.max(-1, Math.min(1, gamma / 30));
+      };
+      getRaw() {
+        return {
+          intensity: this.accelMag / 6,
+          jump: this.consumeJump(),
+          lateral: this.lateral
+        };
+      }
+      consumeJump() {
+        const value = this.jumpFlag;
+        this.jumpFlag = false;
+        return value;
+      }
+      tick(dt) {
+        this._jumpCooldown = Math.max(0, this._jumpCooldown - dt);
+      }
+    }
+
+    class MockBLEInput extends InputProvider {
+      constructor() {
+        super();
+        this.t = 0;
+        this.jumpFlag = false;
+      }
+      start() { super.start(); this.t = 0; }
+      getRaw(dt) {
+        this.t += dt || 0.016;
+        const cadence = 1.4 + Math.sin(this.t * 0.5) * 0.3;
+        const intensity = 0.4 + Math.abs(Math.sin(this.t * cadence)) * 0.6;
+        if (Math.floor(this.t) % 7 === 0 && this.t % 7 < 0.02) this.jumpFlag = true;
+        return {
+          intensity,
+          jump: this.consumeJump(),
+          lateral: Math.sin(this.t * 0.6) * 0.4
+        };
+      }
+      consumeJump() {
+        const value = this.jumpFlag;
+        this.jumpFlag = false;
+        return value;
+      }
+    }
+
+    class ButtonFallback extends InputProvider {
+      constructor() {
+        super();
+        this.intensity = 0;
+        this.jumpFlag = false;
+        this.lateral = 0;
+        this._keys = {};
+      }
+      start() {
+        super.start();
+        window.addEventListener("keydown", this.onKey);
+        window.addEventListener("keyup", this.onKey);
+      }
+      stop() {
+        super.stop();
+        window.removeEventListener("keydown", this.onKey);
+        window.removeEventListener("keyup", this.onKey);
+      }
+      onKey = (event) => {
+        this._keys[event.code] = event.type === "keydown";
+        if (event.code === "Space" && event.type === "keydown") this.jumpFlag = true;
+      };
+      getRaw() {
+        const up = this._keys["ArrowUp"] || this._keys["KeyW"];
+        this.intensity = up ? 0.9 : 0.1;
+        this.lateral = (this._keys["ArrowRight"] || this._keys["KeyD"]) ? 1 : (this._keys["ArrowLeft"] || this._keys["KeyA"]) ? -1 : 0;
+        return { intensity: this.intensity, jump: this.consumeJump(), lateral: this.lateral };
+      }
+      consumeJump() {
+        const value = this.jumpFlag;
+        this.jumpFlag = false;
+        return value;
+      }
+    }
+
+    class InputManager {
+      constructor() {
+        this.phone = new PhoneSensorInput();
+        this.mock = new MockBLEInput();
+        this.button = new ButtonFallback();
+        this.active = this.phone;
+        this.smoothIntensity = 0;
+        this.smoothLateral = 0;
+        this.peakHistory = [];
+        this.peakWindow = 2.4;
+      }
+      async activatePhone() {
+        const ok = await this.phone.requestPermission();
+        if (ok) this.setActive(this.phone);
+        return ok;
+      }
+      setActive(provider) {
+        if (this.active) this.active.stop();
+        this.active = provider;
+        this.active.start();
+      }
+      update(dt) {
+        if (this.active === this.phone) this.phone.tick(dt);
+        const raw = this.active.getRaw(dt);
+        const dz = config.intensityDeadzone;
+        let intensity = Math.max(0, raw.intensity - dz) / (1 - dz);
+        intensity = this.adaptiveScale(intensity, dt);
+        this.smoothIntensity += (intensity - this.smoothIntensity) * config.intensitySmooth;
+        this.smoothLateral += (raw.lateral - this.smoothLateral) * 0.08;
+        return {
+          intensity: this.smoothIntensity,
+          jump: raw.jump,
+          lateral: this.smoothLateral
+        };
+      }
+      adaptiveScale(value, dt) {
+        const now = state.time;
+        this.peakHistory.push({ t: now, v: value });
+        this.peakHistory = this.peakHistory.filter(item => now - item.t < this.peakWindow);
+        const peak = Math.max(0.35, ...this.peakHistory.map(item => item.v));
+        const scaled = Math.min(1, value / peak);
+        return Math.pow(scaled, 0.85);
+      }
+    }
+
+    const canvas = document.getElementById("scene");
+    const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+
+    const inputManager = new InputManager();
+    let audio = null;
+
+    function createScene() {
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = BABYLON.Color3.FromHexString(PALETTE.bg);
+      scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
+        "https://assets.babylonjs.com/environments/environmentSpecular.env",
+        scene
+      );
+
+      const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, config.bobBase, -6), scene);
+      camera.setTarget(new BABYLON.Vector3(0, config.bobBase, 20));
+      camera.fov = 0.8;
+      camera.minZ = 0.1;
+      camera.maxZ = 200;
+
+      const light = new BABYLON.HemisphericLight("h", new BABYLON.Vector3(0, 1, 0), scene);
+      light.intensity = 0.2;
+      light.diffuse = BABYLON.Color3.White();
+      light.specular = BABYLON.Color3.Black();
+
+      const glow = new BABYLON.GlowLayer("glow", scene, { blurKernelSize: 48 });
+      glow.intensity = 0.6;
+
+      const pipeline = new BABYLON.DefaultRenderingPipeline("pipe", true, scene, [camera]);
+      pipeline.bloomEnabled = true;
+      pipeline.bloomWeight = 0.35;
+      pipeline.bloomKernel = 48;
+      pipeline.bloomThreshold = 0.6;
+      pipeline.imageProcessing.vignetteEnabled = true;
+      pipeline.imageProcessing.vignetteWeight = 1.2;
+      pipeline.imageProcessing.contrast = 1.2;
+      pipeline.imageProcessing.exposure = 1.0;
+
+      const streetTex = new BABYLON.DynamicTexture("street", { width: 512, height: 512 }, scene, false);
+      drawStreetTexture(streetTex);
+
+      const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 30, height: 200, subdivisions: 2 }, scene);
+      ground.position.z = 40;
+
+      const groundMat = new BABYLON.PBRMaterial("groundMat", scene);
+      groundMat.albedoColor = new BABYLON.Color3(0.02, 0.03, 0.05);
+      groundMat.metallic = 1.0;
+      groundMat.roughness = 0.2;
+      groundMat.useMicroSurfaceFromReflectivityMapAlpha = true;
+      groundMat.emissiveTexture = streetTex;
+      groundMat.emissiveColor = BABYLON.Color3.FromHexString(PALETTE.primary);
+      groundMat.environmentIntensity = 1.2;
+      groundMat.backFaceCulling = false;
+      ground.material = groundMat;
+
+      const streetTexInstance = groundMat.emissiveTexture;
+      streetTexInstance.vScale = 6;
+      streetTexInstance.uScale = 2.2;
+
+      const cityRoot = new BABYLON.TransformNode("city", scene);
+      createCity(scene, cityRoot);
+
+      const speedParticles = createSpeedLines(scene, camera);
+      const shockwave = createShockwave(scene);
+      const flowTrail = createEnergyFlow(scene);
+
+      return { scene, camera, glow, pipeline, groundMat, streetTexInstance, cityRoot, speedParticles, shockwave, flowTrail };
+    }
+
+    function drawStreetTexture(texture) {
+      const ctx = texture.getContext();
+      ctx.fillStyle = "#05070d";
+      ctx.fillRect(0, 0, 512, 512);
+      ctx.fillStyle = "rgba(0,229,255,0.4)";
+      for (let i = 0; i < 30; i += 1) {
+        ctx.fillRect(256 + (Math.random() * 120 - 60), i * 16, 4, 10);
+      }
+      ctx.fillStyle = "rgba(255,46,209,0.35)";
+      for (let i = 0; i < 20; i += 1) {
+        ctx.fillRect(100 + Math.random() * 260, i * 24, 2, 16);
+      }
+      texture.update();
+    }
+
+    function createCity(scene, root) {
+      const neonMat = new BABYLON.StandardMaterial("neon", scene);
+      neonMat.emissiveColor = BABYLON.Color3.FromHexString(PALETTE.primary);
+      neonMat.disableLighting = true;
+
+      const neonMat2 = new BABYLON.StandardMaterial("neon2", scene);
+      neonMat2.emissiveColor = BABYLON.Color3.FromHexString(PALETTE.secondary);
+      neonMat2.disableLighting = true;
+
+      const buildingMat = new BABYLON.StandardMaterial("building", scene);
+      buildingMat.diffuseColor = new BABYLON.Color3(0.02, 0.03, 0.05);
+      buildingMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+
+      for (let i = 0; i < 60; i += 1) {
+        const width = 2 + Math.random() * 4;
+        const depth = 2 + Math.random() * 4;
+        const height = 8 + Math.random() * 30;
+        const x = (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 10);
+        const z = i * 6 + Math.random() * 4;
+        const b = BABYLON.MeshBuilder.CreateBox("b" + i, { width, depth, height }, scene);
+        b.position.set(x, height / 2 - 1, z);
+        b.material = buildingMat;
+        b.parent = root;
+
+        const strip = BABYLON.MeshBuilder.CreateBox("s" + i, { width: 0.3, depth: depth + 0.05, height: height * 0.6 }, scene);
+        strip.position.set(x + (x > 0 ? -width / 2 : width / 2), height * 0.6, z);
+        strip.material = Math.random() > 0.5 ? neonMat : neonMat2;
+        strip.parent = root;
+      }
+    }
+
+    function createSpeedLines(scene, camera) {
+      const ps = new BABYLON.ParticleSystem("speed", 800, scene);
+      ps.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
+      ps.emitter = camera;
+      ps.minEmitBox = new BABYLON.Vector3(-3, -1.2, 6);
+      ps.maxEmitBox = new BABYLON.Vector3(3, 2, 10);
+      ps.color1 = BABYLON.Color4.FromHexString(PALETTE.primary + "66");
+      ps.color2 = BABYLON.Color4.FromHexString(PALETTE.secondary + "55");
+      ps.minSize = 0.08;
+      ps.maxSize = 0.2;
+      ps.minLifeTime = 0.2;
+      ps.maxLifeTime = 0.6;
+      ps.emitRate = 120;
+      ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+      ps.direction1 = new BABYLON.Vector3(0, 0, -10);
+      ps.direction2 = new BABYLON.Vector3(0, 0, -24);
+      ps.start();
+      return ps;
+    }
+
+    function createShockwave(scene) {
+      const ring = BABYLON.MeshBuilder.CreateTorus("shock", { thickness: 0.2, diameter: 4, tessellation: 64 }, scene);
+      ring.rotation.x = Math.PI / 2;
+      ring.isVisible = false;
+      const mat = new BABYLON.StandardMaterial("shockMat", scene);
+      mat.emissiveColor = BABYLON.Color3.FromHexString(PALETTE.accent);
+      mat.alpha = 0.8;
+      mat.disableLighting = true;
+      ring.material = mat;
+      return ring;
+    }
+
+    function createEnergyFlow(scene) {
+      const emitter = new BABYLON.TransformNode("flowEmitter", scene);
+      emitter.position = new BABYLON.Vector3(0, 1.2, 1);
+      const trail = new BABYLON.TrailMesh("flowTrail", emitter, scene, 0.3, 60, true);
+      const mat = new BABYLON.StandardMaterial("flowMat", scene);
+      mat.emissiveColor = BABYLON.Color3.FromHexString(PALETTE.primary);
+      mat.alpha = 0.6;
+      mat.disableLighting = true;
+      trail.material = mat;
+      return { emitter, trail, mat };
+    }
+
+    function createAudio() {
+      const context = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      const filter = context.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 800;
+      osc.type = "sawtooth";
+      osc.frequency.value = 90;
+      gain.gain.value = 0.0;
+      osc.connect(filter).connect(gain).connect(context.destination);
+      osc.start();
+      return { context, osc, gain, filter };
+    }
+
+    function updateAudio(intensity) {
+      if (!audio) return;
+      const targetGain = 0.02 + intensity * 0.1;
+      audio.gain.gain.setTargetAtTime(targetGain, audio.context.currentTime, 0.05);
+      audio.filter.frequency.setTargetAtTime(500 + intensity * 1200, audio.context.currentTime, 0.05);
+    }
+
+    function playImpact() {
+      if (!audio) return;
+      audio.gain.gain.cancelScheduledValues(audio.context.currentTime);
+      audio.gain.gain.setTargetAtTime(0.2, audio.context.currentTime, 0.02);
+      audio.gain.gain.setTargetAtTime(0.04, audio.context.currentTime + 0.2, 0.2);
+    }
+
+    const sceneData = createScene();
+
+    const distanceEl = document.getElementById("distance");
+    const energyRingEl = document.getElementById("energyRing");
+    const runBtn = document.getElementById("runBtn");
+    const hint = document.getElementById("hint");
+
+    let started = false;
+    let jumpActive = false;
+    let jumpPhase = 0;
+    let jumpTimer = 0;
+
+    async function startExperience() {
+      if (started) return;
+      started = true;
+      hint.classList.remove("pulse");
+      const ok = await inputManager.activatePhone();
+      if (!ok) inputManager.setActive(inputManager.mock);
+      audio = createAudio();
+      runBtn.style.display = "none";
+    }
+
+    runBtn.addEventListener("click", startExperience);
+    hint.classList.add("pulse");
+
+    engine.runRenderLoop(() => {
+      const dtRaw = engine.getDeltaTime() / 1000;
+      const dt = dtRaw * state.timeScale;
+      state.time += dt;
+
+      const input = inputManager.update(dt);
+
+      // Auto-start demo loop for ad playback if user does not tap.
+      if (!started && state.time > 0.6) {
+        inputManager.setActive(inputManager.mock);
+        started = true;
+      }
+
+      const adBoost = adFlowBoost(state.time);
+      const boostedIntensity = Math.min(1, input.intensity * 0.85 + adBoost * 0.35);
+
+      const targetSpeed = config.baseSpeed + (config.maxSpeed * (0.2 + boostedIntensity * 0.8));
+      state.speed += (targetSpeed - state.speed) * 0.06;
+
+      const energyChange = boostedIntensity > 0.1 ? config.energyBuild : -config.energyDecay;
+      state.energy = Math.min(1, Math.max(0, state.energy + energyChange * dt));
+      state.intensity = boostedIntensity;
+
+      state.distance += state.speed * dt * 0.01;
+      distanceEl.textContent = state.distance.toFixed(2) + " KM";
+
+      updateEnergyRing(state.energy);
+      updateAudio(state.intensity);
+
+      updateVisuals(input, dt);
+      updateJump(input, dt);
+      updateNearMiss(dt);
+      handleAdJump();
+
+      if (state.time > 4) hint.style.opacity = 0;
+
+      sceneData.scene.render();
+    });
+
+    function adFlowBoost(t) {
+      if (t < 2) return 0.2;
+      if (t < 5) return 0.4 + (t - 2) * 0.2;
+      if (t < 10) return 0.6 + (t - 5) * 0.05;
+      if (t < 15) return 0.8;
+      if (t < 20) return 1.0;
+      return 0.7;
+    }
+
+    function handleAdJump() {
+      if (state.time > 10 && !state.adJumpTriggered) {
+        state.adJumpTriggered = true;
+        triggerJump();
+      }
+    }
+
+    function updateEnergyRing(amount) {
+      const deg = Math.floor(amount * 360);
+      energyRingEl.style.background =
+        `conic-gradient(${PALETTE.primary} ${deg}deg, rgba(0,229,255,0.1) ${deg}deg), radial-gradient(circle at center, rgba(0,0,0,0.4) 58%, rgba(0,229,255,0.15) 60%, transparent 62%)`;
+      energyRingEl.style.boxShadow = `0 0 ${12 + amount * 16}px rgba(0,229,255,${0.4 + amount * 0.4})`;
+    }
+
+    function updateVisuals(input, dt) {
+      const { camera, glow, pipeline, streetTexInstance, flowTrail } = sceneData;
+      const cadence = 1.2 + state.intensity * 2.2;
+      const bob = Math.sin(state.time * cadence * Math.PI * 2) * config.bobAmount * (0.2 + state.intensity);
+      const targetLane = input.lateral * config.laneMax;
+      state.lane += (targetLane - state.lane) * 0.08;
+
+      camera.position.x = state.lane;
+      camera.position.y = config.bobBase + bob;
+      camera.position.z = -6;
+      camera.rotation.z = -state.lane * 0.04;
+      camera.fov = 0.78 + state.intensity * 0.4 + state.energy * 0.15;
+
+      glow.intensity = 0.4 + state.intensity * 0.7 + state.energy * 0.6;
+      pipeline.imageProcessing.exposure = 1.0 + state.energy * 0.2;
+      pipeline.imageProcessing.contrast = 1.2 + state.energy * 0.2;
+
+      streetTexInstance.vOffset += dt * (0.6 + state.speed * 0.08);
+
+      const speedLines = sceneData.speedParticles;
+      speedLines.emitRate = 120 + state.speed * 14;
+      speedLines.minEmitPower = 1 + state.speed * 0.12;
+      speedLines.maxEmitPower = 2 + state.speed * 0.2;
+
+      flowTrail.emitter.position.x = state.lane;
+      flowTrail.emitter.position.y = 1.0 + bob * 0.2;
+      flowTrail.emitter.position.z = 1.2;
+      flowTrail.mat.alpha = 0.2 + state.energy * 0.7;
+    }
+
+    function updateJump(input, dt) {
+      if (input.jump && !jumpActive) {
+        triggerJump();
+      }
+      if (!jumpActive) return;
+
+      jumpTimer -= dt;
+      jumpPhase += dt * 2;
+
+      if (jumpPhase < 1) {
+        sceneData.camera.position.y += 0.5 * (1 - jumpPhase);
+      }
+      if (jumpTimer <= 0) {
+        jumpActive = false;
+        state.timeScale = 1;
+        triggerShockwave();
+        playImpact();
+      }
+    }
+
+    function triggerJump() {
+      jumpActive = true;
+      jumpPhase = 0;
+      jumpTimer = 0.6;
+      state.timeScale = 0.45;
+    }
+
+    function triggerShockwave() {
+      const shock = sceneData.shockwave;
+      shock.isVisible = true;
+      shock.scaling.set(0.2, 0.2, 0.2);
+      shock.position.set(state.lane, 0.2, 8);
+      shock.material.alpha = 0.9;
+      const anim = new BABYLON.Animation("shockAnim", "scaling", 60, BABYLON.Animation.ANIMATIONTYPE_VECTOR3, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+      anim.setKeys([
+        { frame: 0, value: new BABYLON.Vector3(0.2, 0.2, 0.2) },
+        { frame: 30, value: new BABYLON.Vector3(3.2, 3.2, 3.2) }
+      ]);
+      const alphaAnim = new BABYLON.Animation("shockAlpha", "material.alpha", 60, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+      alphaAnim.setKeys([
+        { frame: 0, value: 0.9 },
+        { frame: 30, value: 0.0 }
+      ]);
+      shock.animations = [anim, alphaAnim];
+      sceneData.scene.beginAnimation(shock, 0, 30, false, 1, () => { shock.isVisible = false; });
+    }
+
+    function updateNearMiss(dt) {
+      state.nearMissCooldown = Math.max(0, state.nearMissCooldown - dt);
+      if (state.nearMissCooldown > 0 || state.energy < 0.6) return;
+      if (Math.random() < 0.01) {
+        triggerNearMiss();
+        state.nearMissCooldown = 5;
+      }
+    }
+
+    function triggerNearMiss() {
+      state.timeScale = 0.6;
+      setTimeout(() => { state.timeScale = 1; }, 400);
+    }
+
+    window.addEventListener("resize", () => engine.resize());
+  </script>
+</body>
+</html>
